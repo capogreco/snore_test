@@ -4,71 +4,84 @@ document.body.style.overflow = `hidden`
 const cnv = document.getElementById (`cnv_element`)
 cnv.style.background = `tomato`
 
-globalThis.onresize = () => {
+onresize = () => {
    cnv.width = innerWidth
    cnv.height = innerHeight   
 }
 
-globalThis.onresize ()
+onresize ()
 
 const ctx = cnv.getContext (`2d`)
+
 const draw_frame = () => {
+
    ctx.fillStyle = `turquoise`
    ctx.fillRect (0, 0, innerWidth, innerHeight)
 
    requestAnimationFrame (draw_frame)
 
-   if (!graph.is_built) return
+   if (!a.is_built) return
 
-   ctx.fillStyle = `hotpink`
-   const data = new Uint8Array (graph.analyser.frequencyBinCount)
-   graph.analyser.getByteFrequencyData (data)
+   const data = new Uint8Array (a.analyser.frequencyBinCount)
+   a.analyser.getByteFrequencyData (data)
+
    const w = cnv.width / data.length
+   ctx.fillStyle = `hotpink`
+
    for (let i = 0; i < data.length; i++) {
       const h = data[i] / 255 * cnv.height
       ctx.fillRect (i * w, cnv.height - h, w, h)
    }
-
 }
 
-const graph = { 
-   is_built: false,
-   is_playing: false
+const a = { 
+   is_built: false
 }
 
-const midi_to_freq = midi => 440 * 2 ** ((midi - 69) / 12)
+const midi_to_freq = note => 440 * 2 ** ((note - 69) / 12)
 
-const build_graph = () => {
-   graph.audio = new AudioContext ()
+const build_graph = async () => {
+   const freq = midi_to_freq (36)
 
-   graph.osc = graph.audio.createOscillator ()
-   graph.osc.type = `sawtooth`
-   graph.osc.frequency.value = midi_to_freq (46)
+   a.ctx = new AudioContext ()
 
-   graph.amp = graph.audio.createGain ()
-   graph.amp.gain.value = 0
-   graph.osc.connect (graph.amp)
+   await a.ctx.audioWorklet.addModule (`worklets/pink_noise.js`)
+   a.noise = new AudioWorkletNode (a.ctx, `pink_noise`)
+
+   a.noise_amp = a.ctx.createGain ()
+   a.noise_amp.gain.value = freq / 2
+   a.noise.connect (a.noise_amp)
+
+   a.osc = a.ctx.createOscillator ()
+   a.osc.type = `sawtooth`
+   a.osc.frequency.value = freq
+   a.noise_amp.connect (a.osc.frequency)
+
+   a.amp = a.ctx.createGain ()
+   a.amp.gain.value = 0
+
+   a.osc.connect (a.amp)
    
-   graph.analyser = graph.audio.createAnalyser ()
-   graph.analyser.fftSize = 2048
-   graph.amp.connect (graph.analyser)
-   graph.analyser.connect (graph.audio.destination)
+   a.analyser = a.ctx.createAnalyser ()
+   a.analyser.fftSize = 2048
+   a.amp.connect (a.analyser)
+   a.analyser.connect (a.ctx.destination)
 
-   const t = graph.audio.currentTime
-   graph.osc.start ()
-   graph.amp.gain.linearRampToValueAtTime (0.05, t + 0.1)
+   const t = a.ctx.currentTime
+   a.osc.start ()
+   a.amp.gain.linearRampToValueAtTime (0.05, t + 0.1)
 
-   graph.is_built = true
+   a.is_built = true
 }
 
 cnv.onpointerdown = () => {
-   if (!graph.is_built) {
+   if (!a.is_built) {
       build_graph ()
       draw_frame ()
       return
    }
-   const t = graph.audio.currentTime
-   const a = graph.amp.gain.value ? 0 : 0.05
-   console.log (graph.amp.gain.value)
-   graph.amp.gain.linearRampToValueAtTime (a, t + 0.1)
+
+   const t = a.ctx.currentTime
+   const v = a.amp.gain.value ? 0 : 0.05
+   a.amp.gain.linearRampToValueAtTime (v, t + 0.1)
 }
